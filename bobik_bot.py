@@ -5,8 +5,8 @@ import logging
 import json
 import time
 from datetime import datetime, timedelta
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from typing import Dict, List, Optional
 import threading
 
@@ -178,7 +178,20 @@ class AdvancedBobikBot:
         ]
         return InlineKeyboardMarkup(keyboard)
 
-    def create_settings_menu(self) -> InlineKeyboardMarkup:
+    def create_permanent_menu(self) -> ReplyKeyboardMarkup:
+        """Створює постійне меню внизу екрану"""
+        keyboard = [
+            ["📊 Аналітика", "🧪 Тест пост"],
+            ["🎲 Мем", "📅 Розклад"], 
+            ["⚙️ Управління", "📈 Статус"],
+            ["🔧 Налаштування", "ℹ️ Допомога"]
+        ]
+        return ReplyKeyboardMarkup(
+            keyboard, 
+            resize_keyboard=True, 
+            persistent=True,
+            one_time_keyboard=False
+        )
         """Меню налаштувань"""
         keyboard = [
             [
@@ -674,7 +687,113 @@ class AdvancedBobikBot:
         except:
             return False
 
+    async def handle_permanent_menu(self, update, context):
+        """Обробник постійного меню"""
+        text = update.message.text
+        
+        if text == "📊 Аналітика":
+            await update.message.reply_text(
+                "📊 **Аналітика каналу**\n\nОберіть тип статистики:",
+                reply_markup=self.create_analytics_menu(),
+                parse_mode='Markdown'
+            )
+            
+        elif text == "🧪 Тест пост":
+            await update.message.reply_text("🧪 Публікую тестовий мем...")
+            success = await self.post_meme_to_channel_advanced()
+            
+            if success:
+                await update.message.reply_text(
+                    "✅ **Тестовий мем успішно опубліковано!**\n\nПеревірте канал @BobikFun",
+                    parse_mode='Markdown'
+                )
+            else:
+                await update.message.reply_text("❌ **Помилка публікації**")
+                
+        elif text == "🎲 Мем":
+            await update.message.reply_text("🔍 Шукаю найкращий мем...")
+            
+            meme = self.get_meme_advanced()
+            if meme:
+                caption = self.generate_smart_caption(meme)
+                await update.message.reply_photo(photo=meme['url'], caption=caption)
+            else:
+                await update.message.reply_text("😔 Не знайшов мему, спробуй ще раз!")
+                
+        elif text == "📅 Розклад":
+            schedule_text = self.get_schedule_info()
+            await update.message.reply_text(
+                schedule_text,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⚙️ Управління", callback_data="management")]]),
+                parse_mode='Markdown'
+            )
+            
+        elif text == "⚙️ Управління":
+            status = "🟢 Активний" if self.scheduler_running else "🔴 Зупинений"
+            await update.message.reply_text(
+                f"⚙️ **Управління ботом**\n\nПоточний статус: {status}\n\nОберіть дію:",
+                reply_markup=self.create_management_menu(),
+                parse_mode='Markdown'
+            )
+            
+        elif text == "📈 Статус":
+            status_text = self.get_detailed_status()
+            await update.message.reply_text(
+                status_text,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Оновити", callback_data="status")]]),
+                parse_mode='Markdown'
+            )
+            
+        elif text == "🔧 Налаштування":
+            await update.message.reply_text(
+                "🔧 **Налаштування бота**\n\nОберіть що хочете налаштувати:",
+                reply_markup=self.create_settings_menu(),
+                parse_mode='Markdown'
+            )
+            
+        elif text == "ℹ️ Допомога":
+            help_text = self.get_help_info()
+            await update.message.reply_text(
+                help_text,
+                parse_mode='Markdown'
+            )
+
     def get_help_info(self) -> str:
+        """Інформація про допомогу"""
+        return """
+ℹ️ **Довідка по боту Бобік:**
+
+🎯 **Основні функції:**
+• Автоматична публікація 11 мемів/день
+• Розумні українські підписи
+• Аналітика та статистика
+• Ручне управління публікаціями
+
+📱 **Постійне меню:**
+• **📊 Аналітика** - статистика каналу
+• **🧪 Тест пост** - швидка публікація
+• **🎲 Мем** - випадковий мем приватно
+• **📅 Розклад** - план публікацій
+• **⚙️ Управління** - запуск/зупинка
+• **📈 Статус** - поточний стан
+• **🔧 Налаштування** - конфігурація
+• **ℹ️ Допомога** - ця довідка
+
+⚙️ **Управління:**
+• Запуск/зупинка розкладу
+• Екстрена публікація
+• Очищення статистики
+• Налаштування параметрів
+
+📊 **Аналітика:**
+• Загальна статистика
+• Статистика по часах
+• Найкращі години для постів
+• Експорт даних
+
+❓ **Потрібна допомога?**
+Звертайтесь до адміністратора каналу!
+"""
         """Інформація про допомогу"""
         return """
 ℹ️ **Довідка по боту Бобік:**
@@ -756,20 +875,19 @@ class AdvancedBobikBot:
             "🚀 **Нові можливості:**\n"
             "• 11 автопостів на день\n"
             "• Розумні українські підписи\n"
-            "• Інтерактивне меню управління\n"
+            "• Постійне меню управління\n"
             "• Покращена аналітика\n"
             "• Множинні джерела мемів\n\n"
-            "📱 **Використовуй меню для зручності!**\n"
-            "Команда `/menu` - відкрити головне меню\n\n"
+            "📱 **Використовуй меню внизу екрану для зручності!**\n\n"
             "🔗 **Канал:** @BobikFun",
-            reply_markup=self.create_main_menu(),
+            reply_markup=self.create_permanent_menu(),
             parse_mode='Markdown'
         )
 
     async def menu_command(self, update, context):
-        """Команда для відкриття головного меню"""
+        """Команда для показу розширеного меню"""
         await update.message.reply_text(
-            "🐕 **Головне меню Бобіка**\n\nОберіть дію:",
+            "🐕 **Розширене меню Бобіка**\n\nОберіть дію:",
             reply_markup=self.create_main_menu(),
             parse_mode='Markdown'
         )
@@ -851,7 +969,7 @@ class AdvancedBobikBot:
         await update.message.reply_text(status_text, parse_mode='Markdown')
 
 def main():
-    """Головна функція з автоматичним розкладом та меню"""
+    """Головна функція з автоматичним розкладом та постійним меню"""
     bot = AdvancedBobikBot()
     
     # Створюємо додаток
@@ -869,12 +987,18 @@ def main():
     # Додаємо обробник кнопок меню
     application.add_handler(CallbackQueryHandler(bot.button_callback))
     
+    # Додаємо обробник постійного меню
+    application.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND, 
+        bot.handle_permanent_menu
+    ))
+    
     # ЗАПУСКАЄМО АВТОМАТИЧНИЙ ПЛАНУВАЛЬНИК
     bot.start_scheduler()
     
-    logger.info("🚀 Покращений Бобік з меню запущений!")
+    logger.info("🚀 Покращений Бобік з постійним меню запущений!")
     logger.info(f"📅 Буде публікувати {len(bot.posting_schedule)} мемів на день")
-    logger.info("🎮 Інтерактивне меню активовано!")
+    logger.info("🎮 Постійне меню активовано!")
     
     # Запускаємо бота
     application.run_polling()
