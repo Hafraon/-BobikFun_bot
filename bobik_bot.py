@@ -5,8 +5,8 @@ import logging
 import json
 import time
 from datetime import datetime, timedelta
-from telegram import Bot
-from telegram.ext import Application, CommandHandler
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler
 from typing import Dict, List, Optional
 import threading
 
@@ -45,6 +45,8 @@ class AdvancedBobikBot:
             "23:45"   # Нічні сови 🦉
         ]
         
+        self.scheduler_running = False
+        
         # Розширені джерела мемів
         self.meme_sources = {
             'general': [
@@ -66,47 +68,133 @@ class AdvancedBobikBot:
             ]
         }
         
-        # Тренди українських підписів за часом дня
+        # Якісні українські підписи за часом дня
         self.time_based_captions = {
             'morning': [
-                "🌅 Доброго ранку! Бобік приніс ранковий заряд позитиву!",
-                "☕ Ранкова порція гумору від Бобіка!",
-                "🐕 Прокидайся! Бобік знайшов щось веселе!",
-                "🌞 Сонячний ранок + смішний мем = ідеальний день!"
+                "🌅 Коли прокинувся і зрозумів, що сьогодні не вихідний:",
+                "☕ Ранкова кава і мем - єдине що тримає на плаву",
+                "🐕 Поки ти спав, Бобік готував щось смішне",
+                "🌞 Ранок понеділка vs твій настрій:",
+                "😴 Будильник о 7 ранку - це злочин проти людяності"
             ],
             'work': [
-                "💼 Робочі будні? Бобік допоможе!",
-                "⚡ Заряд енергії для продуктивного дня!",
-                "🎯 Бобік знає як підняти настрій на роботі!",
-                "💪 Мотивація від Бобіка для робочого дня!"
+                "💻 Коли бос питає про дедлайн, а ти ще не починав:",
+                "📱 Перерва на мем серед робочого хаосу",
+                "🤔 Коли робиш вигляд, що працюєш:",
+                "💼 Робочі будні vs реальність:",
+                "⌨️ Код-рев'ю vs мої очікування:",
+                "📧 Коли в п'ятницю надходить 'терміновий' проект:"
             ],
             'lunch': [
-                "🍽️ Обідня перерва з Бобіком!",
-                "😋 Смачного + смішного від Бобіка!",
-                "🥙 Час обіду = час для мемів!",
-                "🍕 Бобік підготував десерт для твого обіду!"
+                "🍔 Обідня перерва - священний час кожного працівника",
+                "🥪 Коли їси і дивишся меми одночасно",
+                "😋 Їжа смачніша під мемчики від Бобіка",
+                "🍕 Обід в офісі vs обід вдома:",
+                "🥗 Дієта vs те, що насправді їм:"
             ],
             'evening': [
-                "🏠 Кінець робочого дня! Час розслабитися з Бобіком!",
-                "🌆 Вечірня порція гумору від Бобіка!",
-                "🛋️ Час чілити з мемами від Бобіка!",
-                "🎬 Вечірнє шоу від Бобіка починається!"
+                "🏠 Нарешті дома! Час для якісних мемів",
+                "🛋️ Після роботи тільки диван і мемаси",
+                "📺 Коли вибираєш між серіалом і мемами:",
+                "🌆 Кінець робочого дня - почалося життя",
+                "🎮 Коли планував продуктивний вечір:",
+                "🍿 Ідеальний вечір: мемчики + щось смачне"
             ],
             'night': [
-                "🌙 Нічні сови, це для вас!",
-                "🦉 Бобік не спить - розважає нічних мандрівників!",
-                "⭐ Зіркова ніч + мем від Бобіка = ідеально!",
-                "🌃 Нічний гумор від безсонного Бобіка!"
+                "🌙 О 23:00: 'Ще один мемчик і спати'",
+                "🦉 Нічний скрол мемів - моя суперсила",
+                "📱 Коли мав лягти спати 2 години тому:",
+                "⭐ Нічний Telegram серфінг в дії",
+                "😅 Завтра рано вставати, але мемчики важливіше",
+                "🌃 Коли всі сплять, а ти дивишся меми:"
             ]
         }
         
-        # Тренди та хештеги
+        # Релевантні українські хештеги
         self.trending_hashtags = [
-            "#мем", "#гумор", "#Україна", "#настрій", 
-            "#сміх", "#позитив", "#Бобік", "#мемUA"
+            "#мемчик", "#гумор", "#релейтабл", "#настрій", 
+            "#життя", "#робота", "#понеділок", "#кава",
+            "#україна", "#бобік", "#смішно", "#мемас",
+            "#офісlife", "#студентlife", "#дорослеlife"
         ]
         
-        self.scheduler_running = False
+    def create_main_menu(self) -> InlineKeyboardMarkup:
+        """Створює головне меню бота"""
+        keyboard = [
+            [
+                InlineKeyboardButton("📊 Аналітика", callback_data="analytics"),
+                InlineKeyboardButton("🧪 Тест пост", callback_data="test_post")
+            ],
+            [
+                InlineKeyboardButton("🎲 Випадковий мем", callback_data="random_meme"),
+                InlineKeyboardButton("📅 Розклад", callback_data="schedule")
+            ],
+            [
+                InlineKeyboardButton("⚙️ Управління", callback_data="management"),
+                InlineKeyboardButton("📈 Статус", callback_data="status")
+            ],
+            [
+                InlineKeyboardButton("🔧 Налаштування", callback_data="settings"),
+                InlineKeyboardButton("ℹ️ Допомога", callback_data="help")
+            ]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    def create_management_menu(self) -> InlineKeyboardMarkup:
+        """Меню управління ботом"""
+        status_text = "🟢 Зупинити" if self.scheduler_running else "🔴 Запустити"
+        callback_data = "stop_scheduler" if self.scheduler_running else "start_scheduler"
+        
+        keyboard = [
+            [
+                InlineKeyboardButton(f"{status_text} розклад", callback_data=callback_data),
+                InlineKeyboardButton("🔄 Перезапустити", callback_data="restart_scheduler")
+            ],
+            [
+                InlineKeyboardButton("🚀 Опублікувати ЗАРАЗ", callback_data="post_now"),
+                InlineKeyboardButton("🧹 Очистити статистику", callback_data="clear_stats")
+            ],
+            [
+                InlineKeyboardButton("⬅️ Назад", callback_data="main_menu")
+            ]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    def create_analytics_menu(self) -> InlineKeyboardMarkup:
+        """Меню аналітики"""
+        keyboard = [
+            [
+                InlineKeyboardButton("📊 Загальна статистика", callback_data="general_stats"),
+                InlineKeyboardButton("⏰ По часах", callback_data="hourly_stats")
+            ],
+            [
+                InlineKeyboardButton("📈 Успішність", callback_data="success_rate"),
+                InlineKeyboardButton("🎯 Топ години", callback_data="best_hours")
+            ],
+            [
+                InlineKeyboardButton("📋 Експорт даних", callback_data="export_data"),
+                InlineKeyboardButton("⬅️ Назад", callback_data="main_menu")
+            ]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    def create_settings_menu(self) -> InlineKeyboardMarkup:
+        """Меню налаштувань"""
+        keyboard = [
+            [
+                InlineKeyboardButton("🎨 Стиль підписів", callback_data="caption_style"),
+                InlineKeyboardButton("🔍 Джерела мемів", callback_data="meme_sources")
+            ],
+            [
+                InlineKeyboardButton("⏰ Змінити розклад", callback_data="modify_schedule"),
+                InlineKeyboardButton("🏷️ Хештеги", callback_data="hashtags")
+            ],
+            [
+                InlineKeyboardButton("🔄 Скинути налаштування", callback_data="reset_settings"),
+                InlineKeyboardButton("⬅️ Назад", callback_data="main_menu")
+            ]
+        ]
+        return InlineKeyboardMarkup(keyboard)
 
     def get_time_category(self, hour: int) -> str:
         """Визначає категорію часу для підбору підписів"""
@@ -215,15 +303,57 @@ class AdvancedBobikBot:
         # Вибираємо підпис за часом дня
         time_caption = random.choice(self.time_based_captions[time_category])
         
-        # Додаємо контекст з назви мему
+        # Обробляємо назву мему - прибираємо англійські назви
         title = meme_data.get('title', '')
+        
+        # Фільтруємо англійські мемні назви і замінюємо на зрозумілі
+        meme_translations = {
+            'Drake': '🎵 Той момент коли вибираєш:',
+            'Distracted Boyfriend': '👀 Коли з'явилася альтернатива:',
+            'Woman Yelling at Cat': '😾 Конфлікт інтересів:',
+            'Success Kid': '💪 Коли все йде за планом:',
+            'Expanding Brain': '🧠 Еволюція думок:',
+            'Change My Mind': '🤔 Спробуй переконати:',
+            'This is Fine': '🔥 Все під контролем:',
+            'Surprised Pikachu': '😲 Коли очевидне стає несподіванкою:',
+            'Hide the Pain Harold': '😅 Коли робиш вигляд що все ок:'
+        }
+        
+        # Перевіряємо чи є відома англійська назва мему
+        processed_title = title
+        for eng_name, ukr_replacement in meme_translations.items():
+            if eng_name.lower() in title.lower():
+                processed_title = ukr_replacement
+                break
+        else:
+            # Якщо немає відомої назви - перевіряємо чи назва англійська
+            if any(word in title.lower() for word in ['meme', 'when', 'you', 'me', 'the', 'and', 'with', 'that']):
+                # Якщо назва англійська - замінюємо на загальну фразу
+                general_phrases = [
+                    "😂 Ситуація знайома?",
+                    "🎯 В точку!",
+                    "😄 Це про всіх нас",
+                    "💯 Релейтабл контент",
+                    "🤝 Хто теж так робить?",
+                    "😅 Життєва ситуація",
+                    "🎪 Цирк в нашому житті"
+                ]
+                processed_title = random.choice(general_phrases)
+            # Якщо назва не англійська - залишаємо як є, але скорочуємо
+            elif len(title) > 100:
+                processed_title = title[:97] + "..."
         
         # Генеруємо хештеги
         hashtags = random.sample(self.trending_hashtags, 2)
         hashtag_str = ' '.join(hashtags)
         
         # Формуємо фінальний підпис
-        caption = f"{time_caption}\n\n💭 {title}\n\n{hashtag_str}"
+        if processed_title and processed_title != title:
+            # Якщо ми переклали назву мему
+            caption = f"{time_caption}\n\n{processed_title}\n\n{hashtag_str}"
+        else:
+            # Якщо залишили оригінальну назву
+            caption = f"{time_caption}\n\n💭 {processed_title}\n\n{hashtag_str}"
         
         return caption
 
@@ -308,7 +438,280 @@ class AdvancedBobikBot:
 
     def stop_scheduler(self):
         """Зупинка планувальника"""
-        self.scheduler_running = False
+    async def button_callback(self, update, context):
+        """Обробник натискань кнопок меню"""
+        query = update.callback_query
+        await query.answer()
+        
+        data = query.data
+        
+        if data == "main_menu":
+            await query.edit_message_text(
+                "🐕 **Головне меню Бобіка**\n\nОберіть дію:",
+                reply_markup=self.create_main_menu(),
+                parse_mode='Markdown'
+            )
+            
+        elif data == "analytics":
+            await query.edit_message_text(
+                "📊 **Аналітика каналу**\n\nОберіть тип статистики:",
+                reply_markup=self.create_analytics_menu(),
+                parse_mode='Markdown'
+            )
+            
+        elif data == "management":
+            status = "🟢 Активний" if self.scheduler_running else "🔴 Зупинений"
+            await query.edit_message_text(
+                f"⚙️ **Управління ботом**\n\nПоточний статус: {status}\n\nОберіть дію:",
+                reply_markup=self.create_management_menu(),
+                parse_mode='Markdown'
+            )
+            
+        elif data == "settings":
+            await query.edit_message_text(
+                "🔧 **Налаштування бота**\n\nОберіть що хочете налаштувати:",
+                reply_markup=self.create_settings_menu(),
+                parse_mode='Markdown'
+            )
+            
+        elif data == "test_post":
+            await query.edit_message_text("🧪 Публікую тестовий мем...")
+            success = await self.post_meme_to_channel_advanced()
+            
+            if success:
+                text = "✅ **Тестовий мем успішно опубліковано!**\n\nПеревірте канал @BobikFun"
+            else:
+                text = "❌ **Помилка публікації**\n\nПеревірте налаштування бота"
+                
+            await query.edit_message_text(
+                text,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="main_menu")]]),
+                parse_mode='Markdown'
+            )
+            
+        elif data == "random_meme":
+            await query.edit_message_text("🔍 Шукаю найкращий мем...")
+            
+            meme = self.get_meme_advanced()
+            if meme:
+                caption = self.generate_smart_caption(meme)
+                await context.bot.send_photo(
+                    chat_id=query.message.chat_id,
+                    photo=meme['url'],
+                    caption=caption
+                )
+                await query.edit_message_text(
+                    "✅ **Мем відправлено!**",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎲 Ще один мем", callback_data="random_meme"), InlineKeyboardButton("⬅️ Назад", callback_data="main_menu")]]),
+                    parse_mode='Markdown'
+                )
+            else:
+                await query.edit_message_text(
+                    "❌ **Не вдалося знайти мем**\n\nСпробуйте ще раз",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Спробувати ще", callback_data="random_meme"), InlineKeyboardButton("⬅️ Назад", callback_data="main_menu")]]),
+                    parse_mode='Markdown'
+                )
+                
+        elif data == "schedule":
+            schedule_text = self.get_schedule_info()
+            await query.edit_message_text(
+                schedule_text,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="main_menu")]]),
+                parse_mode='Markdown'
+            )
+            
+        elif data == "status":
+            status_text = self.get_detailed_status()
+            await query.edit_message_text(
+                status_text,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Оновити", callback_data="status"), InlineKeyboardButton("⬅️ Назад", callback_data="main_menu")]]),
+                parse_mode='Markdown'
+            )
+            
+        elif data == "general_stats":
+            stats_text = self.get_analytics()
+            await query.edit_message_text(
+                stats_text,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="analytics")]]),
+                parse_mode='Markdown'
+            )
+            
+        elif data == "start_scheduler":
+            self.start_scheduler()
+            await query.edit_message_text(
+                "✅ **Автоматичний розклад запущено!**\n\nБот почне публікувати меми згідно розкладу",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="management")]]),
+                parse_mode='Markdown'
+            )
+            
+        elif data == "stop_scheduler":
+            self.stop_scheduler()
+            await query.edit_message_text(
+                "⏹️ **Автоматичний розклад зупинено**\n\nМеми більше не публікуватимуться автоматично",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="management")]]),
+                parse_mode='Markdown'
+            )
+            
+        elif data == "post_now":
+            await query.edit_message_text("🚀 Публікую мем ПРЯМО ЗАРАЗ...")
+            success = await self.post_meme_to_channel_advanced()
+            
+            if success:
+                text = "🎯 **Мем опубліковано поза розкладом!**\n\nПеревірте канал @BobikFun"
+            else:
+                text = "❌ **Помилка екстреної публікації**"
+                
+            await query.edit_message_text(
+                text,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🚀 Ще один ЗАРАЗ", callback_data="post_now"), InlineKeyboardButton("⬅️ Назад", callback_data="management")]]),
+                parse_mode='Markdown'
+            )
+            
+        elif data == "clear_stats":
+            self.stats = {
+                'posts_today': 0,
+                'total_posts': 0,
+                'last_post_time': None,
+                'successful_posts': 0,
+                'failed_posts': 0,
+                'best_engagement_time': None,
+                'daily_stats': {}
+            }
+            await query.edit_message_text(
+                "🧹 **Статистику очищено!**\n\nВсі дані скинуто до початкових значень",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="management")]]),
+                parse_mode='Markdown'
+            )
+            
+        elif data == "help":
+            help_text = self.get_help_info()
+            await query.edit_message_text(
+                help_text,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="main_menu")]]),
+                parse_mode='Markdown'
+            )
+
+    def get_schedule_info(self) -> str:
+        """Детальна інформація про розклад"""
+        current_time = datetime.now()
+        next_post_times = []
+        
+        for time_str in self.posting_schedule:
+            hour, minute = map(int, time_str.split(':'))
+            post_time = current_time.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if post_time <= current_time:
+                post_time += timedelta(days=1)
+            next_post_times.append((time_str, post_time))
+        
+        next_post_time_str, next_post = min(next_post_times, key=lambda x: x[1])
+        time_until_next = next_post - current_time
+        
+        schedule_text = f"""
+⏰ **Розклад автопублікацій (UTC):**
+
+🌅 **Ранок:**
+• 05:00 - Рання пташка
+• 07:00 - Ранкова кава ☕
+• 09:00 - Початок робочого дня 💼
+
+🌞 **День:**
+• 11:30 - Перед обідом  
+• 13:00 - Обідня перерва 🍽️
+• 15:00 - Після обіду ⚡
+• 17:00 - Кінець робочого дня
+
+🌆 **Вечір:**
+• 19:00 - Вечерня активність 🏠
+• 21:00 - Прайм-тайм 📺
+• 22:30 - Пізній вечір
+• 23:45 - Нічні сови 🦉
+
+📊 **Статистика:**
+• Всього: {len(self.posting_schedule)} постів/день
+• Статус: {'🟢 Активний' if self.scheduler_running else '🔴 Вимкнений'}
+• Наступний пост: {next_post_time_str} (через {str(time_until_next).split('.')[0]})
+"""
+        return schedule_text
+
+    def get_detailed_status(self) -> str:
+        """Детальний статус бота"""
+        current_time = datetime.now()
+        
+        # Прогрес дня
+        completed_today = self.stats['posts_today']
+        total_planned = len(self.posting_schedule)
+        progress = (completed_today / total_planned) * 100 if total_planned > 0 else 0
+        
+        status_text = f"""
+🤖 **Детальний статус Бобіка:**
+
+⏰ **Час:**
+• Зараз: {current_time.strftime('%H:%M:%S UTC')}
+• Дата: {current_time.strftime('%d.%m.%Y')}
+
+📊 **Прогрес дня:**
+• Опубліковано: {completed_today}/{total_planned}
+• Прогрес: {progress:.1f}%
+• {'🎯 День завершено!' if completed_today >= total_planned else f'📝 Залишилось: {total_planned - completed_today}'}
+
+🔄 **Статус систем:**
+• Планувальник: {'🟢 Працює' if self.scheduler_running else '🔴 Зупинений'}
+• API мемів: {'🟢 Доступно' if self.test_meme_api() else '🔴 Проблеми'}
+• Канал: 🟢 Підключено
+
+🎯 **Успішність:**
+• Успішних постів: {self.stats['successful_posts']}
+• Невдалих постів: {self.stats['failed_posts']}
+• Успішність: {(self.stats['successful_posts']/(max(1, self.stats['successful_posts'] + self.stats['failed_posts']))*100):.1f}%
+"""
+        return status_text
+
+    def test_meme_api(self) -> bool:
+        """Швидкий тест доступності API"""
+        try:
+            response = requests.get("https://meme-api.herokuapp.com/gimme", timeout=5)
+            return response.status_code == 200
+        except:
+            return False
+
+    def get_help_info(self) -> str:
+        """Інформація про допомогу"""
+        return """
+ℹ️ **Довідка по боту Бобік:**
+
+🎯 **Основні функції:**
+• Автоматична публікація 11 мемів/день
+• Розумні українські підписи
+• Аналітика та статистика
+• Ручне управління публікаціями
+
+📱 **Команди:**
+• `/menu` - головне меню
+• `/start` - інформація про бота
+• `/meme` - випадковий мем
+• `/test` - тестова публікація
+
+⚙️ **Управління:**
+• Запуск/зупинка розкладу
+• Екстрена публікація
+• Очищення статистики
+• Налаштування параметрів
+
+📊 **Аналітика:**
+• Загальна статистика
+• Статистика по часах
+• Найкращі години для постів
+• Експорт даних
+
+🔧 **Налаштування:**
+• Стиль підписів
+• Джерела мемів
+• Розклад публікацій
+• Хештеги
+
+❓ **Потрібна допомога?**
+Звертайтесь до адміністратора каналу!
+"""
         logger.info("⏹️ Планувальник зупинено!")
 
     def get_analytics(self) -> str:
@@ -349,18 +752,25 @@ class AdvancedBobikBot:
     # Команди бота
     async def start_command(self, update, context):
         await update.message.reply_text(
-            "🐕 Привіт! Я покращений Бобік!\n\n"
+            "🐕 **Привіт! Я покращений Бобік!**\n\n"
             "🚀 **Нові можливості:**\n"
             "• 11 автопостів на день\n"
-            "• Розумні підписи за часом\n"
+            "• Розумні українські підписи\n"
+            "• Інтерактивне меню управління\n"
             "• Покращена аналітика\n"
             "• Множинні джерела мемів\n\n"
-            "📱 **Команди:**\n"
-            "/meme - отримати мем\n"
-            "/test - опублікувати в канал\n"
-            "/analytics - детальна статистика\n"
-            "/schedule - управління розкладом\n"
-            "/status - поточний статус",
+            "📱 **Використовуй меню для зручності!**\n"
+            "Команда `/menu` - відкрити головне меню\n\n"
+            "🔗 **Канал:** @BobikFun",
+            reply_markup=self.create_main_menu(),
+            parse_mode='Markdown'
+        )
+
+    async def menu_command(self, update, context):
+        """Команда для відкриття головного меню"""
+        await update.message.reply_text(
+            "🐕 **Головне меню Бобіка**\n\nОберіть дію:",
+            reply_markup=self.create_main_menu(),
             parse_mode='Markdown'
         )
 
@@ -441,7 +851,7 @@ class AdvancedBobikBot:
         await update.message.reply_text(status_text, parse_mode='Markdown')
 
 def main():
-    """Головна функція з автоматичним розкладом"""
+    """Головна функція з автоматичним розкладом та меню"""
     bot = AdvancedBobikBot()
     
     # Створюємо додаток
@@ -449,17 +859,22 @@ def main():
     
     # Додаємо команди
     application.add_handler(CommandHandler("start", bot.start_command))
+    application.add_handler(CommandHandler("menu", bot.menu_command))
     application.add_handler(CommandHandler("meme", bot.meme_command))
     application.add_handler(CommandHandler("test", bot.test_command))
     application.add_handler(CommandHandler("analytics", bot.analytics_command))
     application.add_handler(CommandHandler("schedule", bot.schedule_command))
     application.add_handler(CommandHandler("status", bot.status_command))
     
+    # Додаємо обробник кнопок меню
+    application.add_handler(CallbackQueryHandler(bot.button_callback))
+    
     # ЗАПУСКАЄМО АВТОМАТИЧНИЙ ПЛАНУВАЛЬНИК
     bot.start_scheduler()
     
-    logger.info("🚀 Покращений Бобік запущений з автоматичним розкладом!")
+    logger.info("🚀 Покращений Бобік з меню запущений!")
     logger.info(f"📅 Буде публікувати {len(bot.posting_schedule)} мемів на день")
+    logger.info("🎮 Інтерактивне меню активовано!")
     
     # Запускаємо бота
     application.run_polling()
