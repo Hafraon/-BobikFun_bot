@@ -309,7 +309,7 @@ class AdvancedBobikBot:
         # Фільтруємо англійські мемні назви і замінюємо на зрозумілі
         meme_translations = {
             'Drake': '🎵 Той момент коли вибираєш:',
-            'Distracted Boyfriend': '👀 Коли з'явилася альтернатива:',
+            'Distracted Boyfriend': '👀 Коли з\'явилася альтернатива:',
             'Woman Yelling at Cat': '😾 Конфлікт інтересів:',
             'Success Kid': '💪 Коли все йде за планом:',
             'Expanding Brain': '🧠 Еволюція думок:',
