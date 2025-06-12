@@ -205,6 +205,8 @@ class AdvancedBobikBot:
             selective=False,             # Для всіх користувачів
             input_field_placeholder="Обери дію з меню 👇"  # Підказка в полі вводу
         )
+    
+    def create_settings_menu(self) -> InlineKeyboardMarkup:
         """Меню налаштувань"""
         keyboard = [
             [
@@ -595,6 +597,9 @@ class AdvancedBobikBot:
 
     def stop_scheduler(self):
         """Зупинка планувальника"""
+        self.scheduler_running = False
+        logger.info("⏹️ Планувальник зупинено!")
+
     async def button_callback(self, update, context):
         """Обробник натискань кнопок меню"""
         query = update.callback_query
@@ -814,7 +819,10 @@ class AdvancedBobikBot:
                 'successful_posts': 0,
                 'failed_posts': 0,
                 'best_engagement_time': None,
-                'daily_stats': {}
+                'daily_stats': {},
+                'posted_memes': set(),
+                'hourly_posts': {},
+                'last_api_check': None
             }
             await query.edit_message_text(
                 "🧹 **Статистику очищено!**\n\nВсі дані скинуто до початкових значень",
@@ -979,6 +987,20 @@ class AdvancedBobikBot:
             )
             
         elif text == "ℹ️ Допомога":
+            help_text = self.get_help_info()
+            await update.message.reply_text(
+                help_text,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔧 Налаштування", callback_data="settings")]]),
+                parse_mode='Markdown'
+            )
+        else:
+            # Якщо текст не розпізнано, показуємо меню
+            await update.message.reply_text(
+                f"🤔 Не розумію команду '{text}'\n\nВикористовуй кнопки меню:",
+                reply_markup=self.create_permanent_menu(),
+                parse_mode='Markdown'
+            )
+
     def get_hourly_analytics(self) -> str:
         """Аналітика по годинах"""
         if not self.stats['daily_stats']:
@@ -1177,40 +1199,6 @@ class AdvancedBobikBot:
         
         logger.info("🔄 Налаштування бота скинуто до заводських")
 
-    def test_meme_api(self) -> bool:
-        """Покращений тест доступності API"""
-        try:
-            # Тестуємо кілька основних джерел
-            test_sources = [
-                "https://meme-api.herokuapp.com/gimme",
-                "https://api.reddit.com/r/memes/hot.json?limit=1"
-            ]
-            
-            for source in test_sources:
-                try:
-                    if 'reddit.com' in source:
-                        headers = {'User-Agent': 'BobikBot/1.0'}
-                        response = requests.get(source, headers=headers, timeout=5)
-                    else:
-                        response = requests.get(source, timeout=5)
-                    
-                    if response.status_code == 200:
-                        self.stats['last_api_check'] = datetime.now()
-                        return True
-                except:
-                    continue
-            
-            return False
-        except:
-            return False
-        else:
-            # Якщо текст не розпізнано, показуємо меню
-            await update.message.reply_text(
-                f"🤔 Не розумію команду '{text}'\n\nВикористовуй кнопки меню:",
-                reply_markup=self.create_permanent_menu(),
-                parse_mode='Markdown'
-            )
-
     def get_help_info(self) -> str:
         """Інформація про допомогу"""
         return """
@@ -1252,44 +1240,6 @@ class AdvancedBobikBot:
 ❓ **Потрібна допомога?**
 Звертайтесь до адміністратора каналу!
 """
-        """Інформація про допомогу"""
-        return """
-ℹ️ **Довідка по боту Бобік:**
-
-🎯 **Основні функції:**
-• Автоматична публікація 11 мемів/день
-• Розумні українські підписи
-• Аналітика та статистика
-• Ручне управління публікаціями
-
-📱 **Команди:**
-• `/menu` - головне меню
-• `/start` - інформація про бота
-• `/meme` - випадковий мем
-• `/test` - тестова публікація
-
-⚙️ **Управління:**
-• Запуск/зупинка розкладу
-• Екстрена публікація
-• Очищення статистики
-• Налаштування параметрів
-
-📊 **Аналітика:**
-• Загальна статистика
-• Статистика по часах
-• Найкращі години для постів
-• Експорт даних
-
-🔧 **Налаштування:**
-• Стиль підписів
-• Джерела мемів
-• Розклад публікацій
-• Хештеги
-
-❓ **Потрібна допомога?**
-Звертайтесь до адміністратора каналу!
-"""
-        logger.info("⏹️ Планувальник зупинено!")
 
     def get_analytics(self) -> str:
         """Генерує детальну аналітику"""
