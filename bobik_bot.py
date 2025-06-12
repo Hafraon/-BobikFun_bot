@@ -25,20 +25,55 @@ class BobikBot:
         ]
 
     def get_meme(self):
-        """Отримує мем з Reddit API"""
-        try:
-            response = requests.get("https://meme-api.herokuapp.com/gimme", timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('url') and any(ext in data['url'].lower() for ext in ['.jpg', '.jpeg', '.png', '.gif']):
-                    return {
-                        'url': data['url'],
-                        'title': data.get('title', ''),
-                        'ups': data.get('ups', 0)
-                    }
-        except Exception as e:
-            logger.error(f"Помилка отримання мему: {e}")
-        return None
+        """Отримує мем з різних джерел"""
+        # Список API для мемів
+        apis = [
+            "https://meme-api.herokuapp.com/gimme",
+            "https://meme-api.herokuapp.com/gimme/dankmemes", 
+            "https://meme-api.herokuapp.com/gimme/memes",
+            "https://meme-api.herokuapp.com/gimme/wholesomememes",
+            "https://meme-api.herokuapp.com/gimme/ProgrammerHumor"
+        ]
+        
+        for api_url in apis:
+            try:
+                response = requests.get(api_url, timeout=10)
+                if response.status_code == 200:
+                    data = response.json()
+                    
+                    # Перевіряємо чи є URL зображення
+                    if data.get('url'):
+                        url = data['url']
+                        # Перевіряємо формат
+                        if any(ext in url.lower() for ext in ['.jpg', '.jpeg', '.png', '.gif']):
+                            # Знижуємо вимоги до upvotes
+                            ups = data.get('ups', 0)
+                            if ups >= 10:  # Знизив з 100 до 10
+                                return {
+                                    'url': url,
+                                    'title': data.get('title', ''),
+                                    'ups': ups
+                                }
+                            # Якщо upvotes низькі, але мем є - все одно беремо
+                            elif url:
+                                return {
+                                    'url': url,
+                                    'title': data.get('title', 'Безназви мем'),
+                                    'ups': ups
+                                }
+                                
+            except Exception as e:
+                logger.error(f"Помилка API {api_url}: {e}")
+                continue
+                
+        # Якщо жоден API не спрацював - fallback на статичний мем
+        logger.warning("Всі API недоступні, використовую fallback мем")
+        return {
+            'url': 'https://i.imgflip.com/1bij.jpg',  # Знаменитий Success Kid мем
+            'title': 'Fallback мем - коли API не працюють!',
+            'ups': 9999
+        }
+
 
     async def start_command(self, update, context):
         """Команда /start"""
