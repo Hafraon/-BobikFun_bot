@@ -1,1 +1,1 @@
-web: python bobik_bot.py
+worker: python bobik_bot.py
