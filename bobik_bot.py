@@ -19,7 +19,7 @@ class AdvancedBobikBot:
         self.bot_token = "7882259321:AAGGqql6LD6bzLHTOb1HdKUYs2IJBZqsd6E"
         self.channel_id = "@BobikFun"
         
-        # Розширена статистика
+        # Статистика з історією постів
         self.stats = {
             'posts_today': 0,
             'total_posts': 0,
@@ -27,7 +27,10 @@ class AdvancedBobikBot:
             'successful_posts': 0,
             'failed_posts': 0,
             'best_engagement_time': None,
-            'daily_stats': {}
+            'daily_stats': {},
+            'posted_memes': set(),  # Для уникнення дублікатів
+            'hourly_posts': {},     # Статистика по годинах
+            'last_api_check': None  # Час останньої перевірки API
         }
         
         # Оптимальний розклад (UTC) - 11 постів/день
@@ -47,24 +50,33 @@ class AdvancedBobikBot:
         
         self.scheduler_running = False
         
-        # Розширені джерела мемів
+        # Розширені джерела мемів з різними API
         self.meme_sources = {
             'general': [
                 "https://meme-api.herokuapp.com/gimme",
+                "https://meme-api.com/gimme",
+                "https://api.reddit.com/r/memes/hot.json?limit=50",
                 "https://meme-api.herokuapp.com/gimme/memes",
                 "https://meme-api.herokuapp.com/gimme/dankmemes"
             ],
             'wholesome': [
                 "https://meme-api.herokuapp.com/gimme/wholesomememes",
-                "https://meme-api.herokuapp.com/gimme/MadeMeSmile"
+                "https://meme-api.herokuapp.com/gimme/MadeMeSmile",
+                "https://api.reddit.com/r/wholesomememes/hot.json?limit=30"
             ],
             'tech': [
                 "https://meme-api.herokuapp.com/gimme/ProgrammerHumor",
-                "https://meme-api.herokuapp.com/gimme/softwaregore"
+                "https://meme-api.herokuapp.com/gimme/softwaregore",
+                "https://api.reddit.com/r/ProgrammerHumor/hot.json?limit=30"
             ],
             'relatable': [
                 "https://meme-api.herokuapp.com/gimme/me_irl",
-                "https://meme-api.herokuapp.com/gimme/meirl"
+                "https://meme-api.herokuapp.com/gimme/meirl",
+                "https://api.reddit.com/r/me_irl/hot.json?limit=30"
+            ],
+            'backup': [
+                "https://official-joke-api.appspot.com/random_joke",
+                "https://api.chucknorris.io/jokes/random"
             ]
         }
         
@@ -165,7 +177,7 @@ class AdvancedBobikBot:
         keyboard = [
             [
                 InlineKeyboardButton("📊 Загальна статистика", callback_data="general_stats"),
-                InlineKeyboardButton("⏰ По часах", callback_data="hourly_stats")
+                InlineKeyboardButton("⏰ По годинах", callback_data="hourly_stats")
             ],
             [
                 InlineKeyboardButton("📈 Успішність", callback_data="success_rate"),
@@ -224,37 +236,158 @@ class AdvancedBobikBot:
             return 'night'
 
     def get_meme_advanced(self) -> Optional[Dict]:
-        """Розширений пошук мемів з ротацією джерел"""
+        """Розширений пошук мемів з ротацією джерел та уникненням дублікатів"""
+        max_attempts = 50  # Максимум спроб знайти унікальний мем
+        attempts = 0
+        
+        # Отримуємо всі джерела та перемішуємо для різноманітності
         all_sources = []
-        
-        # Збираємо всі джерела
         for category, urls in self.meme_sources.items():
-            all_sources.extend(urls)
+            if category != 'backup':  # Backup використовуємо в крайньому випадку
+                all_sources.extend([(url, category) for url in urls])
         
-        # Перемішуємо для рандомізації
         random.shuffle(all_sources)
         
-        for api_url in all_sources:
-            try:
-                response = requests.get(api_url, timeout=15)
-                if response.status_code == 200:
-                    data = response.json()
+        while attempts < max_attempts:
+            for api_url, category in all_sources:
+                try:
+                    if 'reddit.com' in api_url:
+                        # Обробка Reddit API
+                        meme = self.get_reddit_meme(api_url)
+                    elif 'joke-api' in api_url or 'chucknorris' in api_url:
+                        # Бекап джерела - жарти
+                        meme = self.get_joke_as_meme(api_url)
+                    else:
+                        # Стандартні мем API
+                        meme = self.get_standard_meme(api_url)
                     
-                    if self.is_quality_meme_advanced(data):
-                        return {
-                            'url': data.get('url'),
-                            'title': data.get('title', ''),
-                            'ups': data.get('ups', 0),
-                            'subreddit': data.get('subreddit', ''),
-                            'source_api': api_url
-                        }
+                    if meme and self.is_unique_meme(meme):
+                        # Додаємо до історії постів
+                        self.stats['posted_memes'].add(meme.get('url', ''))
                         
-            except Exception as e:
-                logger.error(f"Помилка API {api_url}: {e}")
-                continue
+                        # Очищуємо історію якщо забагато
+                        if len(self.stats['posted_memes']) > 1000:
+                            # Залишаємо тільки останні 500
+                            self.stats['posted_memes'] = set(list(self.stats['posted_memes'])[-500:])
+                        
+                        logger.info(f"✅ Знайдено унікальний мем з {category}: {api_url}")
+                        return meme
+                        
+                except Exception as e:
+                    logger.error(f"Помилка API {api_url}: {e}")
+                    continue
+            
+            attempts += 1
+            logger.warning(f"Спроба {attempts}: не знайдено унікальних мемів")
         
-        # Якщо всі API недоступні - фоллбек меми
+        # Якщо не знайшли унікальний - використовуємо fallback
+        logger.warning("Використовую fallback мем")
         return self.get_fallback_meme()
+
+    def get_standard_meme(self, api_url: str) -> Optional[Dict]:
+        """Отримує мем зі стандартного API"""
+        response = requests.get(api_url, timeout=15)
+        if response.status_code == 200:
+            data = response.json()
+            if self.is_quality_meme_advanced(data):
+                return {
+                    'url': data.get('url'),
+                    'title': data.get('title', ''),
+                    'ups': data.get('ups', 0),
+                    'subreddit': data.get('subreddit', ''),
+                    'source_api': api_url
+                }
+        return None
+
+    def get_reddit_meme(self, api_url: str) -> Optional[Dict]:
+        """Отримує мем з Reddit API"""
+        headers = {'User-Agent': 'BobikBot/1.0'}
+        response = requests.get(api_url, headers=headers, timeout=15)
+        
+        if response.status_code == 200:
+            data = response.json()
+            posts = data.get('data', {}).get('children', [])
+            
+            # Фільтруємо якісні пости
+            for post in posts:
+                post_data = post.get('data', {})
+                if self.is_quality_reddit_post(post_data):
+                    return {
+                        'url': post_data.get('url'),
+                        'title': post_data.get('title', ''),
+                        'ups': post_data.get('ups', 0),
+                        'subreddit': post_data.get('subreddit', ''),
+                        'source_api': api_url
+                    }
+        return None
+
+    def get_joke_as_meme(self, api_url: str) -> Optional[Dict]:
+        """Перетворює жарт на мем (backup джерело)"""
+        try:
+            response = requests.get(api_url, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                
+                if 'joke-api' in api_url:
+                    joke_text = f"{data.get('setup', '')}\n{data.get('punchline', '')}"
+                elif 'chucknorris' in api_url:
+                    joke_text = data.get('value', '')
+                
+                return {
+                    'url': 'https://i.imgflip.com/1bij.jpg',  # Стандартне зображення для жартів
+                    'title': joke_text[:200] + '...' if len(joke_text) > 200 else joke_text,
+                    'ups': 500,  # Середній рейтинг
+                    'subreddit': 'jokes',
+                    'source_api': api_url
+                }
+        except Exception as e:
+            logger.error(f"Помилка отримання жарту: {e}")
+        return None
+
+    def is_quality_reddit_post(self, post_data: Dict) -> bool:
+        """Перевіряє якість Reddit поста"""
+        try:
+            url = post_data.get('url', '')
+            title = post_data.get('title', '').lower()
+            ups = post_data.get('ups', 0)
+            
+            # Перевірка формату
+            if not any(ext in url.lower() for ext in ['.jpg', '.jpeg', '.png', '.gif']):
+                return False
+            
+            # Мінімальний рейтинг
+            if ups < 50:
+                return False
+            
+            # Фільтр неприйнятного контенту
+            bad_words = ['nsfw', 'porn', 'sex', 'politics']
+            if any(word in title for word in bad_words):
+                return False
+            
+            return True
+            
+        except Exception:
+            return False
+
+    def is_unique_meme(self, meme_data: Dict) -> bool:
+        """Перевіряє чи мем унікальний (не публікувався раніше)"""
+        if not meme_data:
+            return False
+        
+        meme_url = meme_data.get('url', '')
+        meme_title = meme_data.get('title', '')
+        
+        # Перевіряємо URL
+        if meme_url in self.stats['posted_memes']:
+            return False
+        
+        # Перевіряємо схожість назв (базова перевірка)
+        for posted_url in list(self.stats['posted_memes'])[-100:]:  # Перевіряємо останні 100
+            if posted_url and abs(len(meme_title) - len(posted_url)) < 10:
+                if any(word in meme_title.lower() for word in posted_url.lower().split() if len(word) > 3):
+                    return False
+        
+        return True
 
     def is_quality_meme_advanced(self, data: Dict) -> bool:
         """Покращена фільтрація якості мемів"""
@@ -372,11 +505,11 @@ class AdvancedBobikBot:
         return caption
 
     async def post_meme_to_channel_advanced(self) -> bool:
-        """Покращена публікація з аналітикою"""
+        """Покращена публікація з аналітикою та уникненням дублікатів"""
         try:
             meme = self.get_meme_advanced()
             if not meme:
-                logger.error("Не вдалося отримати мем")
+                logger.error("Не вдалося отримати унікальний мем")
                 self.stats['failed_posts'] += 1
                 return False
             
@@ -390,20 +523,30 @@ class AdvancedBobikBot:
                 caption=caption
             )
             
-            # Оновлюємо статистику
+            # Оновлюємо розширену статистику
             current_time = datetime.now()
             self.stats['posts_today'] += 1
             self.stats['total_posts'] += 1
             self.stats['successful_posts'] += 1
             self.stats['last_post_time'] = current_time
             
-            # Зберігаємо статистику по часах для аналітики
+            # Статистика по годинах
             hour_key = current_time.strftime('%H')
             if hour_key not in self.stats['daily_stats']:
                 self.stats['daily_stats'][hour_key] = 0
             self.stats['daily_stats'][hour_key] += 1
             
-            logger.info(f"✅ Мем опубліковано! ID: {result.message_id}, Час: {current_time.strftime('%H:%M')}")
+            # Детальна статистика по годинах
+            if hour_key not in self.stats['hourly_posts']:
+                self.stats['hourly_posts'][hour_key] = []
+            self.stats['hourly_posts'][hour_key].append({
+                'time': current_time.isoformat(),
+                'meme_title': meme.get('title', ''),
+                'source': meme.get('source_api', ''),
+                'message_id': result.message_id
+            })
+            
+            logger.info(f"✅ Мем опубліковано! ID: {result.message_id}, Час: {current_time.strftime('%H:%M')}, Джерело: {meme.get('source_api', 'Unknown')}")
             return True
             
         except Exception as e:
@@ -547,6 +690,88 @@ class AdvancedBobikBot:
             await query.edit_message_text(
                 stats_text,
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="analytics")]]),
+                parse_mode='Markdown'
+            )
+            
+        elif data == "hourly_stats":
+            hourly_text = self.get_hourly_analytics()
+            await query.edit_message_text(
+                hourly_text,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="analytics")]]),
+                parse_mode='Markdown'
+            )
+            
+        elif data == "success_rate":
+            success_text = self.get_success_analytics()
+            await query.edit_message_text(
+                success_text,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="analytics")]]),
+                parse_mode='Markdown'
+            )
+            
+        elif data == "best_hours":
+            best_hours_text = self.get_best_hours_analytics()
+            await query.edit_message_text(
+                best_hours_text,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="analytics")]]),
+                parse_mode='Markdown'
+            )
+            
+        elif data == "export_data":
+            export_text = self.export_analytics_data()
+            await query.edit_message_text(
+                export_text,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="analytics")]]),
+                parse_mode='Markdown'
+            )
+            
+        elif data == "caption_style":
+            await query.edit_message_text(
+                "🎨 **Стиль підписів:**\n\nПоточний стиль: Релейтабл український гумор\n\nДоступні стилі:\n• Життєві ситуації ✅\n• Робочий гумор\n• IT меми\n• Студентський гумор",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="settings")]]),
+                parse_mode='Markdown'
+            )
+            
+        elif data == "meme_sources":
+            sources_text = self.get_sources_info()
+            await query.edit_message_text(
+                sources_text,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="settings")]]),
+                parse_mode='Markdown'
+            )
+            
+        elif data == "modify_schedule":
+            schedule_text = self.get_schedule_settings()
+            await query.edit_message_text(
+                schedule_text,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="settings")]]),
+                parse_mode='Markdown'
+            )
+            
+        elif data == "hashtags":
+            hashtag_text = self.get_hashtags_info()
+            await query.edit_message_text(
+                hashtag_text,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="settings")]]),
+                parse_mode='Markdown'
+            )
+            
+        elif data == "reset_settings":
+            await query.edit_message_text(
+                "🔄 **Скидання налаштувань**\n\n⚠️ Це скине всі персональні налаштування до заводських.\n\nПродовжити?",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✅ Так, скинути", callback_data="confirm_reset")],
+                    [InlineKeyboardButton("❌ Скасувати", callback_data="settings")]
+                ]),
+                parse_mode='Markdown'
+            )
+            
+        elif data == "confirm_reset":
+            # Скидаємо налаштування
+            self.reset_bot_settings()
+            await query.edit_message_text(
+                "✅ **Налаштування скинуто!**\n\nВсі параметри повернуто до заводських значень.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="settings")]]),
                 parse_mode='Markdown'
             )
             
@@ -754,11 +979,230 @@ class AdvancedBobikBot:
             )
             
         elif text == "ℹ️ Допомога":
-            help_text = self.get_help_info()
-            await update.message.reply_text(
-                help_text,
-                parse_mode='Markdown'
-            )
+    def get_hourly_analytics(self) -> str:
+        """Аналітика по годинах"""
+        if not self.stats['daily_stats']:
+            return "📊 **Статистика по годинах:**\n\nДаних ще немає. Зачекайте кілька публікацій."
+        
+        # Сортуємо години по кількості постів
+        sorted_hours = sorted(self.stats['daily_stats'].items(), key=lambda x: x[1], reverse=True)
+        
+        hourly_text = "📊 **Статистика по годинах:**\n\n"
+        
+        for hour, count in sorted_hours[:10]:  # Топ 10 годин
+            percentage = (count / sum(self.stats['daily_stats'].values())) * 100
+            hourly_text += f"• **{hour}:00** - {count} постів ({percentage:.1f}%)\n"
+        
+        # Додаємо рекомендації
+        if sorted_hours:
+            best_hour = sorted_hours[0][0]
+            hourly_text += f"\n🎯 **Найактивніша година:** {best_hour}:00"
+        
+        return hourly_text
+
+    def get_success_analytics(self) -> str:
+        """Аналітика успішності"""
+        total_attempts = self.stats['successful_posts'] + self.stats['failed_posts']
+        
+        if total_attempts == 0:
+            return "📈 **Аналітика успішності:**\n\nДаних ще немає."
+        
+        success_rate = (self.stats['successful_posts'] / total_attempts) * 100
+        
+        success_text = f"""
+📈 **Аналітика успішності:**
+
+✅ **Успішні пости:** {self.stats['successful_posts']}
+❌ **Невдалі пости:** {self.stats['failed_posts']}
+📊 **Загальна успішність:** {success_rate:.1f}%
+
+🎯 **Оцінка якості:**
+"""
+        
+        if success_rate >= 95:
+            success_text += "🟢 Відмінно! Бот працює ідеально."
+        elif success_rate >= 85:
+            success_text += "🟡 Добре. Є невеликі проблеми з API."
+        elif success_rate >= 70:
+            success_text += "🟠 Середньо. Потрібна оптимізація джерел."
+        else:
+            success_text += "🔴 Погано. Потрібна термінова діагностика."
+        
+        return success_text
+
+    def get_best_hours_analytics(self) -> str:
+        """Аналітика найкращих годин"""
+        if not self.stats['daily_stats']:
+            return "🎯 **Топ години для публікацій:**\n\nДаних ще немає."
+        
+        sorted_hours = sorted(self.stats['daily_stats'].items(), key=lambda x: x[1], reverse=True)
+        
+        best_hours_text = "🎯 **Топ години для публікацій:**\n\n"
+        
+        # Топ 5 годин
+        for i, (hour, count) in enumerate(sorted_hours[:5], 1):
+            best_hours_text += f"{i}. **{hour}:00** - {count} постів\n"
+        
+        # Рекомендації по часовим зонам
+        best_hours_text += "\n📍 **Рекомендації:**\n"
+        best_hours_text += "• Найкраща активність: 09:00-12:00, 18:00-21:00\n"
+        best_hours_text += "• Найгірша активність: 02:00-05:00\n"
+        best_hours_text += "• Оптимально для України: +2 години до UTC"
+        
+        return best_hours_text
+
+    def export_analytics_data(self) -> str:
+        """Експорт даних аналітики"""
+        export_data = {
+            'timestamp': datetime.now().isoformat(),
+            'total_posts': self.stats['total_posts'],
+            'posts_today': self.stats['posts_today'],
+            'success_rate': (self.stats['successful_posts'] / max(1, self.stats['successful_posts'] + self.stats['failed_posts'])) * 100,
+            'hourly_stats': self.stats['daily_stats'],
+            'posted_memes_count': len(self.stats['posted_memes']),
+            'scheduler_status': self.scheduler_running
+        }
+        
+        export_text = f"""
+📋 **Експорт даних аналітики:**
+
+```json
+{json.dumps(export_data, indent=2, ensure_ascii=False)}
+```
+
+📊 **Формат:** JSON
+📅 **Дата експорту:** {datetime.now().strftime('%d.%m.%Y %H:%M')}
+💾 **Розмір даних:** {len(str(export_data))} символів
+
+💡 **Використання:** Скопіюй дані для зовнішнього аналізу
+"""
+        return export_text
+
+    def get_sources_info(self) -> str:
+        """Інформація про джерела мемів"""
+        total_sources = sum(len(urls) for urls in self.meme_sources.values())
+        
+        sources_text = f"""
+🔍 **Джерела мемів:**
+
+📊 **Загальна інформація:**
+• Всього джерел: {total_sources}
+• Категорій: {len(self.meme_sources)}
+• Унікальних постів: {len(self.stats['posted_memes'])}
+
+📂 **Категорії:**
+"""
+        
+        for category, urls in self.meme_sources.items():
+            category_names = {
+                'general': '🎭 Загальні меми',
+                'wholesome': '😊 Позитивні меми', 
+                'tech': '💻 IT гумор',
+                'relatable': '🤝 Релейтабл контент',
+                'backup': '🔄 Резервні джерела'
+            }
+            
+            sources_text += f"• {category_names.get(category, category)}: {len(urls)} джерел\n"
+        
+        # Статус API
+        api_status = "🟢 Доступно" if self.test_meme_api() else "🔴 Проблеми"
+        sources_text += f"\n🌐 **Статус API:** {api_status}"
+        
+        return sources_text
+
+    def get_schedule_settings(self) -> str:
+        """Налаштування розкладу"""
+        schedule_text = f"""
+⏰ **Налаштування розкладу:**
+
+📅 **Поточний розклад:** {len(self.posting_schedule)} постів/день
+
+🕐 **Часи публікацій (UTC):**
+"""
+        
+        for i, time_str in enumerate(self.posting_schedule, 1):
+            schedule_text += f"{i}. {time_str}\n"
+        
+        schedule_text += f"""
+
+⚙️ **Параметри:**
+• Статус: {'🟢 Активний' if self.scheduler_running else '🔴 Зупинений'}
+• Перевірка: кожні 30 секунд
+• Часова зона: UTC (Київ +2 години)
+
+💡 **Примітка:** Для зміни розкладу потрібно оновити код
+"""
+        
+        return schedule_text
+
+    def get_hashtags_info(self) -> str:
+        """Інформація про хештеги"""
+        hashtags_text = f"""
+🏷️ **Налаштування хештегів:**
+
+📊 **Поточні хештеги:**
+{' '.join(self.trending_hashtags)}
+
+📂 **Категорії:**
+• Загальні: #мемчик #гумор #релейтабл
+• Життєві: #життя #робота #студентlife
+• Українські: #україна #настрій
+• Специфічні: #офісlife #дорослеlife
+
+🎯 **Використання:**
+• 2 випадкових хештеги на пост
+• Ротація для різноманітності
+• Адаптація під час дня
+
+💡 **Для зміни хештегів потрібно оновити код**
+"""
+        
+        return hashtags_text
+
+    def reset_bot_settings(self):
+        """Скидає налаштування бота"""
+        # Очищуємо статистику
+        self.stats = {
+            'posts_today': 0,
+            'total_posts': 0,
+            'last_post_time': None,
+            'successful_posts': 0,
+            'failed_posts': 0,
+            'best_engagement_time': None,
+            'daily_stats': {},
+            'posted_memes': set(),
+            'hourly_posts': {},
+            'last_api_check': None
+        }
+        
+        logger.info("🔄 Налаштування бота скинуто до заводських")
+
+    def test_meme_api(self) -> bool:
+        """Покращений тест доступності API"""
+        try:
+            # Тестуємо кілька основних джерел
+            test_sources = [
+                "https://meme-api.herokuapp.com/gimme",
+                "https://api.reddit.com/r/memes/hot.json?limit=1"
+            ]
+            
+            for source in test_sources:
+                try:
+                    if 'reddit.com' in source:
+                        headers = {'User-Agent': 'BobikBot/1.0'}
+                        response = requests.get(source, headers=headers, timeout=5)
+                    else:
+                        response = requests.get(source, timeout=5)
+                    
+                    if response.status_code == 200:
+                        self.stats['last_api_check'] = datetime.now()
+                        return True
+                except:
+                    continue
+            
+            return False
+        except:
+            return False
         else:
             # Якщо текст не розпізнано, показуємо меню
             await update.message.reply_text(
