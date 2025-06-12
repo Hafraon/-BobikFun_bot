@@ -690,6 +690,7 @@ class AdvancedBobikBot:
     async def handle_permanent_menu(self, update, context):
         """Обробник постійного меню"""
         text = update.message.text
+        logger.info(f"Натиснуто кнопку: {text}")
         
         if text == "📊 Аналітика":
             await update.message.reply_text(
@@ -755,6 +756,13 @@ class AdvancedBobikBot:
             help_text = self.get_help_info()
             await update.message.reply_text(
                 help_text,
+                parse_mode='Markdown'
+            )
+        else:
+            # Якщо текст не розпізнано, показуємо меню
+            await update.message.reply_text(
+                f"🤔 Не розумію команду '{text}'\n\nВикористовуй кнопки меню:",
+                reply_markup=self.create_permanent_menu(),
                 parse_mode='Markdown'
             )
 
@@ -868,8 +876,8 @@ class AdvancedBobikBot:
 """
         return analytics
 
-    # Команди бота
     async def start_command(self, update, context):
+        permanent_menu = self.create_permanent_menu()
         await update.message.reply_text(
             "🐕 **Привіт! Я покращений Бобік!**\n\n"
             "🚀 **Нові можливості:**\n"
@@ -878,16 +886,23 @@ class AdvancedBobikBot:
             "• Постійне меню управління\n"
             "• Покращена аналітика\n"
             "• Множинні джерела мемів\n\n"
-            "📱 **Використовуй меню внизу екрану для зручності!**\n\n"
+            "📱 **Використовуй кнопки внизу для зручності!**\n\n"
             "🔗 **Канал:** @BobikFun",
-            reply_markup=self.create_permanent_menu(),
+            reply_markup=permanent_menu,
             parse_mode='Markdown'
         )
 
     async def menu_command(self, update, context):
-        """Команда для показу розширеного меню"""
+        """Команда для показу розширеного меню + відновлення постійного"""
+        permanent_menu = self.create_permanent_menu()
         await update.message.reply_text(
-            "🐕 **Розширене меню Бобіка**\n\nОберіть дію:",
+            "🐕 **Меню Бобіка відновлено!**\n\nВикористовуй кнопки внизу:",
+            reply_markup=permanent_menu,
+            parse_mode='Markdown'
+        )
+        # Також показуємо розширене меню
+        await update.message.reply_text(
+            "🎛️ **Розширене меню:**",
             reply_markup=self.create_main_menu(),
             parse_mode='Markdown'
         )
@@ -977,12 +992,22 @@ def main():
     
     # Додаємо команди
     application.add_handler(CommandHandler("start", bot.start_command))
-    application.add_handler(CommandHandler("menu", bot.menu_command))
+    application.add_handler(CommandHandler("menu", bot.menu_command)) 
     application.add_handler(CommandHandler("meme", bot.meme_command))
     application.add_handler(CommandHandler("test", bot.test_command))
     application.add_handler(CommandHandler("analytics", bot.analytics_command))
     application.add_handler(CommandHandler("schedule", bot.schedule_command))
     application.add_handler(CommandHandler("status", bot.status_command))
+    
+    # Швидка команда для відновлення меню
+    async def restore_menu(update, context):
+        await update.message.reply_text(
+            "📱 **Меню відновлено!**\n\nВикористовуй кнопки внизу:",
+            reply_markup=bot.create_permanent_menu()
+        )
+    
+    application.add_handler(CommandHandler("restore", restore_menu))
+    application.add_handler(CommandHandler("m", restore_menu))  # Швидкий доступ
     
     # Додаємо обробник кнопок меню
     application.add_handler(CallbackQueryHandler(bot.button_callback))
