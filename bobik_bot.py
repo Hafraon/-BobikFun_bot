@@ -5,7 +5,7 @@ import logging
 import json
 import time
 from datetime import datetime, timedelta
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from typing import Dict, List, Optional
 import threading
@@ -188,9 +188,10 @@ class AdvancedBobikBot:
         ]
         return ReplyKeyboardMarkup(
             keyboard, 
-            resize_keyboard=True, 
-            persistent=True,
-            one_time_keyboard=False
+            resize_keyboard=True,        # Автоматично підбирає розмір
+            one_time_keyboard=False,     # Не зникає після використання
+            selective=False,             # Для всіх користувачів
+            input_field_placeholder="Обери дію з меню 👇"  # Підказка в полі вводу
         )
         """Меню налаштувань"""
         keyboard = [
@@ -777,7 +778,7 @@ class AdvancedBobikBot:
 • Аналітика та статистика
 • Ручне управління публікаціями
 
-📱 **Постійне меню:**
+📱 **Постійне меню (внизу екрану):**
 • **📊 Аналітика** - статистика каналу
 • **🧪 Тест пост** - швидка публікація
 • **🎲 Мем** - випадковий мем приватно
@@ -786,6 +787,12 @@ class AdvancedBobikBot:
 • **📈 Статус** - поточний стан
 • **🔧 Налаштування** - конфігурація
 • **ℹ️ Допомога** - ця довідка
+
+🎛️ **Команди:**
+• `/menu` - показати постійне меню
+• `/advanced` - розширене інлайн меню
+• `/m` - швидке відновлення меню
+• `/hide` - приховати постійне меню
 
 ⚙️ **Управління:**
 • Запуск/зупинка розкладу
@@ -797,7 +804,6 @@ class AdvancedBobikBot:
 • Загальна статистика
 • Статистика по часах
 • Найкращі години для постів
-• Експорт даних
 
 ❓ **Потрібна допомога?**
 Звертайтесь до адміністратора каналу!
@@ -886,24 +892,19 @@ class AdvancedBobikBot:
             "• Постійне меню управління\n"
             "• Покращена аналітика\n"
             "• Множинні джерела мемів\n\n"
-            "📱 **Використовуй кнопки внизу для зручності!**\n\n"
+            "📱 **Постійне меню з'явилося внизу екрану!**\n"
+            "Натискай кнопки замість введення команд.\n\n"
             "🔗 **Канал:** @BobikFun",
             reply_markup=permanent_menu,
             parse_mode='Markdown'
         )
 
     async def menu_command(self, update, context):
-        """Команда для показу розширеного меню + відновлення постійного"""
+        """Команда для відновлення постійного меню"""
         permanent_menu = self.create_permanent_menu()
         await update.message.reply_text(
-            "🐕 **Меню Бобіка відновлено!**\n\nВикористовуй кнопки внизу:",
+            "📱 **Постійне меню активовано!**\n\nВикористовуй кнопки внизу екрану:",
             reply_markup=permanent_menu,
-            parse_mode='Markdown'
-        )
-        # Також показуємо розширене меню
-        await update.message.reply_text(
-            "🎛️ **Розширене меню:**",
-            reply_markup=self.create_main_menu(),
             parse_mode='Markdown'
         )
 
@@ -1002,12 +1003,33 @@ def main():
     # Швидка команда для відновлення меню
     async def restore_menu(update, context):
         await update.message.reply_text(
-            "📱 **Меню відновлено!**\n\nВикористовуй кнопки внизу:",
+            "📱 **Постійне меню відновлено!**\n\nКнопки тепер внизу екрану:",
             reply_markup=bot.create_permanent_menu()
+        )
+    
+    async def advanced_menu(update, context):
+        """Показує розширене інлайн меню"""
+        await update.message.reply_text(
+            "🎛️ **Розширене меню:**\n\nДодаткові функції:",
+            reply_markup=bot.create_main_menu(),
+            parse_mode='Markdown'
+        )
+    
+    async def hide_menu(update, context):
+        """Приховує постійне меню"""
+        await update.message.reply_text(
+            "👻 **Постійне меню приховано**\n\n"
+            "Для відновлення використовуй:\n"
+            "• `/menu` - показати меню\n"
+            "• `/m` - швидкий доступ",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='Markdown'
         )
     
     application.add_handler(CommandHandler("restore", restore_menu))
     application.add_handler(CommandHandler("m", restore_menu))  # Швидкий доступ
+    application.add_handler(CommandHandler("advanced", advanced_menu))  # Розширене меню
+    application.add_handler(CommandHandler("hide", hide_menu))  # Приховати меню
     
     # Додаємо обробник кнопок меню
     application.add_handler(CallbackQueryHandler(bot.button_callback))
